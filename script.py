@@ -2,40 +2,10 @@ from dataclasses import dataclass, asdict
 from datetime import date
 from typing import List
 
-import gspread
-from oauth2client.service_account import ServiceAccountCredentials
 from sp_api.api import Orders
 from sp_api.base import SellingApiException, Marketplaces
 
 import const
-
-
-class GoogleSheets:
-    def __init__(self, credentials_file: str, sheet_key: str, worksheet_name: str):
-        self.credentials_file = credentials_file
-        self.sheet_key = sheet_key
-        self.worksheet_name = worksheet_name
-        self.scope = [
-            "https://spreadsheets.google.com/feeds",
-        ]
-        self.sheet_object = self._get_sheet_object()
-
-    def _get_sheet_object(self) -> gspread.models.Worksheet:
-        credentials = ServiceAccountCredentials.from_json_keyfile_name(
-            self.credentials_file, self.scope
-        )
-        client = gspread.authorize(credentials)
-        return client.open_by_key(self.sheet_key).worksheet(self.worksheet_name)
-
-    def write_header_if_doesnt_exist(self, columns: List[str]) -> None:
-        data = self.sheet_object.get_all_values()
-        if not data:
-            self.sheet_object.insert_row(columns)
-
-    def append_rows(self, rows: List[List]) -> None:
-        last_row_number = len(self.sheet_object.col_values(1)) + 1
-        self.sheet_object.insert_rows(rows, last_row_number)
-
 
 @dataclass
 class AmazonOrder:
@@ -60,20 +30,17 @@ HEADER = [
     "OrderType",
 ]
 
-
 class AmazonScript:
     def __init__(self):
-        google_sheets = GoogleSheets(
-            "keys.json", const.GOOGLE_SHEETS_ID, const.GOOGLE_WORKSHEET_NAME
-        )
-        google_sheets.write_header_if_doesnt_exist(HEADER)
-        self.get_orders_data_and_append_to_gs(google_sheets)
+        self.get_orders_data()
 
-    def get_orders_data_and_append_to_gs(self, google_sheets: GoogleSheets) -> None:
+    def get_orders_data(self) -> None:
         try:
             order_data = self.get_orders_from_sp_api()
             ready_rows = [list(asdict(row).values()) for row in order_data]
-            google_sheets.append_rows(ready_rows)
+            # print lines to console instead of Google Sheets
+            for row in ready_rows:
+                print(row);
         except SellingApiException as e:
             print(f"Error: {e}")
 
@@ -86,7 +53,8 @@ class AmazonScript:
             aws_access_key=const.AWS_ACCESS_KEY,
             role_arn=const.ROLE_ARN,
         )
-        res = Orders(credentials=client_config, marketplace=Marketplaces.IT)
+        res = Orders(credentials=client_config, marketplace=Marketplaces.US)
+
         return self.convert_response_to_amazon_order_list(
             res.get_orders(CreatedAfter='2017-03-30', CreatedBefore=date.today().isoformat()).payload
         )
